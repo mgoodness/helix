@@ -2,7 +2,7 @@ use std::{borrow::Cow, collections::HashMap, iter};
 
 use anyhow::Result;
 
-use crate::Editor;
+use crate::{document::SCRATCH_BUFFER_NAME, Editor};
 
 /// A key-value store for saving sets of values.
 ///
@@ -13,6 +13,7 @@ use crate::Editor;
 /// * Black hole (`_`): all values read and written are discarded
 /// * Selection indices (`#`): index number of each selection starting at 1
 /// * Selection contents (`.`)
+/// * Document path (`%`): filename of the current buffer
 #[derive(Debug, Default)]
 pub struct Registers {
     inner: HashMap<char, Vec<String>>,
@@ -40,6 +41,17 @@ impl Registers {
                 let text = doc.text().slice(..);
                 Some(Box::new(doc.selection(view.id).fragments(text)))
             }
+            '%' => {
+                let doc = doc!(editor);
+
+                let path = doc
+                    .path()
+                    .as_ref()
+                    .map(|p| p.to_string_lossy())
+                    .unwrap_or_else(|| SCRATCH_BUFFER_NAME.into());
+
+                Some(Box::new(iter::once(path)))
+            }
             _ => self
                 .inner
                 .get(&name)
@@ -50,7 +62,7 @@ impl Registers {
     pub fn write(&mut self, name: char, values: Vec<String>) -> Result<()> {
         match name {
             '_' => Ok(()),
-            '#' | '.' => Err(anyhow::anyhow!("Register {name} does not support writing")),
+            '#' | '.' | '%' => Err(anyhow::anyhow!("Register {name} does not support writing")),
             _ => {
                 self.inner.insert(name, values);
                 Ok(())
@@ -61,7 +73,7 @@ impl Registers {
     pub fn push(&mut self, name: char, value: String) -> Result<()> {
         match name {
             '_' => Ok(()),
-            '#' | '.' => Err(anyhow::anyhow!("Register {name} does not support pushing")),
+            '#' | '.' | '%' => Err(anyhow::anyhow!("Register {name} does not support pushing")),
             _ => {
                 self.inner.entry(name).or_insert_with(Vec::new).push(value);
                 Ok(())
@@ -93,6 +105,7 @@ impl Registers {
                     ('_', "<empty>"),
                     ('#', "<selection indices>"),
                     ('.', "<selection contents>"),
+                    ('%', "<document path>"),
                 ]
                 .iter()
                 .copied(),
@@ -105,7 +118,7 @@ impl Registers {
 
     pub fn remove(&mut self, name: char) -> bool {
         match name {
-            '_' | '#' | '.' => false,
+            '_' | '#' | '.' | '%' => false,
             _ => self.inner.remove(&name).is_some(),
         }
     }
