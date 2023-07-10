@@ -297,8 +297,8 @@ impl Prompt {
         direction: CompletionDirection,
     ) {
         (self.callback_fn)(cx, &self.line, PromptEvent::Abort);
-        let values = match cx.editor.registers.read(register) {
-            Some(values) if !values.is_empty() => values,
+        let mut values = match cx.editor.registers.read(register, cx.editor) {
+            Some(values) if values.len() > 0 => values,
             _ => return,
         };
 
@@ -306,13 +306,16 @@ impl Prompt {
 
         let index = match direction {
             CompletionDirection::Forward => self.history_pos.map_or(0, |i| i + 1),
-            CompletionDirection::Backward => {
-                self.history_pos.unwrap_or(values.len()).saturating_sub(1)
-            }
+            CompletionDirection::Backward => self
+                .history_pos
+                .unwrap_or_else(|| values.len())
+                .saturating_sub(1),
         }
         .min(end);
 
-        self.line = values[index].clone();
+        self.line = values.nth(index).unwrap().to_string();
+        // Appease the borrow checker.
+        drop(values);
 
         self.history_pos = Some(index);
 
@@ -458,8 +461,7 @@ impl Prompt {
             // latest value in the register list
             match self
                 .history_register
-                .and_then(|reg| cx.editor.registers.last(reg))
-                .map(|entry| entry.into())
+                .and_then(|reg| cx.editor.registers.last(reg, cx.editor))
             {
                 Some(value) => (value, true),
                 None => (Cow::from(""), false),
@@ -558,25 +560,29 @@ impl Component for Prompt {
                 } else {
                     let last_item = self
                         .history_register
-                        .and_then(|reg| cx.editor.registers.last(reg).cloned())
-                        .map(|entry| entry.into())
-                        .unwrap_or_else(|| Cow::from(""));
+                        .and_then(|reg| cx.editor.registers.last(reg, cx.editor))
+                        .map(|entry| entry.to_string())
+                        .unwrap_or_else(|| String::from(""));
 
                     // handle executing with last command in history if nothing entered
-                    let input: Cow<str> = if self.line.is_empty() {
-                        last_item
+                    let input = if self.line.is_empty() {
+                        &last_item
                     } else {
                         if last_item != self.line {
                             // store in history
                             if let Some(register) = self.history_register {
-                                cx.editor.registers.push(register, self.line.clone());
+                                if let Err(err) =
+                                    cx.editor.registers.push(register, self.line.clone())
+                                {
+                                    cx.editor.set_error(err.to_string());
+                                }
                             };
                         }
 
-                        self.line.as_str().into()
+                        &self.line
                     };
 
-                    (self.callback_fn)(cx, &input, PromptEvent::Validate);
+                    (self.callback_fn)(cx, input, PromptEvent::Validate);
 
                     return close_fn;
                 }
@@ -608,25 +614,16 @@ impl Component for Prompt {
                 self.completion = cx
                     .editor
                     .registers
-                    .inner()
-                    .iter()
-                    .map(|(ch, reg)| {
-                        let content = reg
-                            .read()
-                            .get(0)
-                            .and_then(|s| s.lines().next().to_owned())
-                            .unwrap_or_default();
-                        (0.., format!("{} {}", ch, &content).into())
-                    })
+                    .iter_preview()
+                    .map(|(ch, preview)| (0.., format!("{} {}", ch, &preview).into()))
                     .collect();
                 self.next_char_handler = Some(Box::new(|prompt, c, context| {
                     prompt.insert_str(
-                        context
+                        &context
                             .editor
                             .registers
-                            .read(c)
-                            .and_then(|r| r.first())
-                            .map_or("", |r| r.as_str()),
+                            .first(c, context.editor)
+                            .unwrap_or_default(),
                         context.editor,
                     );
                 }));
