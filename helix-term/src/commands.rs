@@ -1851,7 +1851,11 @@ fn search_completions(cx: &mut Context, reg: Option<char>) -> Vec<String> {
         .map_or(Vec::new(), |reg| reg.take(200).collect());
     items.sort_unstable();
     items.dedup();
-    items.into_iter().map(|value| value.to_string()).collect()
+    items
+        .into_iter()
+        .rev()
+        .map(|value| value.to_string())
+        .collect()
 }
 
 fn search(cx: &mut Context) {
@@ -1911,7 +1915,7 @@ fn search_next_or_prev_impl(cx: &mut Context, movement: Movement, direction: Dir
     let register = cx.register.unwrap_or('/');
     let config = cx.editor.config();
     let scrolloff = config.scrolloff;
-    if let Some(query) = cx.editor.registers.last(register, cx.editor) {
+    if let Some(query) = cx.editor.registers.first(register, cx.editor) {
         let doc = doc!(cx.editor);
         let contents = doc.text().slice(..).to_string();
         let search_config = &config.search;

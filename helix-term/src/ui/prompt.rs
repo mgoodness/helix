@@ -305,8 +305,8 @@ impl Prompt {
         let end = values.len().saturating_sub(1);
 
         let index = match direction {
-            CompletionDirection::Forward => self.history_pos.map_or(0, |i| i + 1),
-            CompletionDirection::Backward => self
+            CompletionDirection::Backward => self.history_pos.map_or(0, |i| i + 1),
+            CompletionDirection::Forward => self
                 .history_pos
                 .unwrap_or_else(|| values.len())
                 .saturating_sub(1),
@@ -461,7 +461,7 @@ impl Prompt {
             // latest value in the register list
             match self
                 .history_register
-                .and_then(|reg| cx.editor.registers.last(reg, cx.editor))
+                .and_then(|reg| cx.editor.registers.first(reg, cx.editor))
             {
                 Some(value) => (value, true),
                 None => (Cow::from(""), false),
@@ -560,7 +560,7 @@ impl Component for Prompt {
                 } else {
                     let last_item = self
                         .history_register
-                        .and_then(|reg| cx.editor.registers.last(reg, cx.editor))
+                        .and_then(|reg| cx.editor.registers.first(reg, cx.editor))
                         .map(|entry| entry.to_string())
                         .unwrap_or_else(|| String::from(""));
 

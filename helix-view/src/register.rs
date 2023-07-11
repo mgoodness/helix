@@ -23,6 +23,10 @@ use crate::{
 /// * Primary clipboard (`+`)
 #[derive(Debug)]
 pub struct Registers {
+    /// The mapping of register to values.
+    /// Values are stored in reverse order when inserted with `Registers::write`.
+    /// The order is reversed again in `Registers::read`. This allows us to
+    /// efficiently prepend new values in `Registers::push`.
     inner: HashMap<char, Vec<String>>,
     clipboard_provider: Box<dyn ClipboardProvider>,
 }
@@ -81,11 +85,11 @@ impl Registers {
             _ => self
                 .inner
                 .get(&name)
-                .map(|values| Box::new(values.iter().map(Cow::from)) as RegisterValues),
+                .map(|values| Box::new(values.iter().map(Cow::from).rev()) as RegisterValues),
         }
     }
 
-    pub fn write(&mut self, name: char, values: Vec<String>) -> Result<()> {
+    pub fn write(&mut self, name: char, mut values: Vec<String>) -> Result<()> {
         match name {
             '_' => Ok(()),
             '#' | '.' | '%' => Err(anyhow::anyhow!("Register {name} does not support writing")),
@@ -98,10 +102,12 @@ impl Registers {
                         _ => unreachable!(),
                     },
                 )?;
+                values.reverse();
                 self.inner.insert(name, values);
                 Ok(())
             }
             _ => {
+                values.reverse();
                 self.inner.insert(name, values);
                 Ok(())
             }
@@ -126,10 +132,12 @@ impl Registers {
                 )
                 .map(|value| value.to_string())
                 .collect();
+                values.reverse();
                 values.push(value);
 
                 self.clipboard_provider
                     .set_contents(values.join(NATIVE_LINE_ENDING.as_str()), clipboard_type)?;
+                values.reverse();
                 self.inner.insert(name, values);
 
                 Ok(())
@@ -155,7 +163,7 @@ impl Registers {
             .filter(|(name, _)| !matches!(name, '*' | '+'))
             .map(|(name, values)| {
                 let preview = values
-                    .first()
+                    .last()
                     .and_then(|s| s.lines().next())
                     .unwrap_or("<empty>");
 
@@ -200,7 +208,7 @@ fn read_from_clipboard<'a>(
             let Some(values) = saved_values else { return Box::new(iter::once(contents.into())) };
 
             if contents_are_saved(values, &contents) {
-                Box::new(values.iter().map(Cow::from))
+                Box::new(values.iter().map(Cow::from).rev())
             } else {
                 Box::new(iter::once(contents.into()))
             }
@@ -221,7 +229,7 @@ fn read_from_clipboard<'a>(
 
 fn contents_are_saved(saved_values: &[String], mut contents: &str) -> bool {
     let line_ending = NATIVE_LINE_ENDING.as_str();
-    let mut values = saved_values.iter();
+    let mut values = saved_values.iter().rev();
 
     match values.next() {
         Some(first) if contents.starts_with(first) => {
